@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DeLonghi Coffee Link",
+        "description": "Enter your Coffee Link account credentials. These are the same you use in the Coffee Link mobile app.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Failed to connect to DeLonghi cloud.",
+      "no_devices": "No DeLonghi devices found on this account.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  }
+}

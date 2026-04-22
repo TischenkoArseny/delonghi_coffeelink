@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DeLonghi Coffee Link",
+        "description": "Entrez les identifiants de votre compte Coffee Link (ceux de l'app mobile). Pensez a fermer l'app Coffee Link sur votre telephone pour que Home Assistant prenne le controle (voir README).",
+        "data": {
+          "email": "Email",
+          "password": "Mot de passe"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Email ou mot de passe invalide.",
+      "cannot_connect": "Connexion au cloud DeLonghi impossible.",
+      "no_devices": "Aucun appareil DeLonghi trouve sur ce compte.",
+      "unknown": "Erreur inattendue."
+    },
+    "abort": {
+      "already_configured": "Ce compte est deja configure."
+    }
+  }
+}
