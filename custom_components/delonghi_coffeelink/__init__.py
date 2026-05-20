@@ -49,11 +49,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not devices:
         raise ConfigEntryNotReady("No DeLonghi devices found on this account")
 
+    for device in devices:
+        _LOGGER.debug(
+            "Discovered DeLonghi device: dsn=%s oem_model=%s model=%s sw_version=%s "
+            "connection_status=%s lan_ip=%s",
+            device.dsn,
+            device.oem_model,
+            device.model,
+            device.sw_version,
+            device.connection_status,
+            device.lan_ip,
+        )
+
     # One coordinator per device
     coordinators: list[DelonghiCoordinator] = []
     for device in devices:
         coord = DelonghiCoordinator(hass, client, device)
         await coord.async_config_entry_first_refresh()
+        if coord.data:
+            prop_names = sorted(coord.data.keys())
+            _LOGGER.debug(
+                "Ayla properties for dsn=%s (%d total): %s",
+                device.dsn,
+                len(prop_names),
+                ", ".join(prop_names),
+            )
         coordinators.append(coord)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinators
