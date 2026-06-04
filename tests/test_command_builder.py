@@ -98,6 +98,17 @@ def test_decode_power_real_frame():
     assert d["timestamp"] == 0x6a1744a2
 
 
+def test_decode_tolerates_ayla_trailing_newline():
+    # Ayla returns datapoint values wrapped in whitespace (a real captured app
+    # wake came back as 'DQeEDwIBVRJqIf9q\n'); the decoder must normalise it.
+    d = cb.decode_command("DQeEDwIBVRJqIf9q\n")
+    assert d["type"] == "power"
+    assert d["crc_valid"] is True
+    assert d["raw_b64"] == "DQeEDwIBVRJqIf9q"  # cleaned, no newline
+    # ...and still compares equal to the integration's own wake.
+    assert cb.builder_structural_b64(d) == d["structural_b64"]
+
+
 # --- decode_command: robustness -------------------------------------------
 
 def test_decode_rejects_non_base64():

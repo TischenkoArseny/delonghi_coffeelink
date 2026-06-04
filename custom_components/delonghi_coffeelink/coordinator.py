@@ -142,8 +142,11 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(prop, dict):
             return
         value = prop.get("value")
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str) or not value.strip():
             return
+        # Ayla wraps string datapoints in whitespace (e.g. a trailing newline);
+        # normalise so attribution against _sent_values and the decode succeed.
+        value = value.strip()
         # Prefer the cloud's datapoint timestamp to detect a new write (it also
         # catches the app re-sending byte-identical bytes); fall back to value.
         marker = prop.get("data_updated_at", value)

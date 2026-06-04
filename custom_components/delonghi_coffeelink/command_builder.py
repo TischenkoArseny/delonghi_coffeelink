@@ -108,10 +108,12 @@ def decode_command(value_b64: str) -> dict:
     (brew ``0x83 0xf0`` and power/wake ``0x84 0x0f``) and machine->app
     responses (prefix ``0xd0``). Unknown shapes still get a hex dump.
     """
+    if not isinstance(value_b64, str) or not value_b64.strip():
+        return {"raw_b64": value_b64, "error": "value is not a non-empty string"}
+    # Ayla returns string datapoints with surrounding whitespace (commonly a
+    # trailing newline); normalise it so the frame decodes and round-trips.
+    value_b64 = "".join(value_b64.split())
     out: dict = {"raw_b64": value_b64}
-    if not isinstance(value_b64, str) or not value_b64:
-        out["error"] = "value is not a non-empty string"
-        return out
     try:
         raw = base64.b64decode(value_b64, validate=True)
     except (ValueError, binascii.Error):
