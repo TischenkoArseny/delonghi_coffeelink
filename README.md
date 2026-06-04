@@ -100,6 +100,32 @@ byte 12-13 : CRC16 AUG-CCITT over bytes 0..11
 byte 14-17 : Unix timestamp (big-endian)
 ```
 
+## Diagnostics - capturing what the official app sends
+
+If commands are accepted by the cloud (no error) but your machine does nothing
+- common on models other than the PrimaDonna Soul this was built on - the
+integration can capture the **exact bytes the official Coffee Link app sends**,
+so they can be compared to what it generates.
+
+Each device has a diagnostic sensor **Last Captured Command**
+(`sensor.<machine>_last_captured_command`). To use it:
+
+1. Make sure the integration is running and the device is online.
+2. Open the **official Coffee Link app** and start a beverage (e.g. an espresso).
+3. Within one polling cycle (~30 s), open **Developer Tools -> States** and look
+   at `sensor.<machine>_last_captured_command`.
+   - **State** = the app's raw base64 command.
+   - **Attributes** decode it: `origin` (`app` vs `integration`), `beverage_name`,
+     `params`, `crc_valid`, and **`matches_integration`**.
+4. `matches_integration: true` means the integration generates the same bytes as
+   the app (so any "machine ignores it" issue is environmental - e.g. the app
+   holding the local session, see the note above). `matches_integration: false`
+   means the app uses different bytes - **paste this sensor's attributes into a
+   GitHub issue** and the command builder can be corrected for your model.
+
+App-originated captures are also logged (enable debug logging for
+`custom_components.delonghi_coffeelink`) as `CAPTURED app->machine command ...`.
+
 ## Credits
 
 - Reverse engineering of Coffee Link auth & protocol: @actabi (2026)

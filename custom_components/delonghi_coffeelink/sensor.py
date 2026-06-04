@@ -6,6 +6,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -59,6 +60,7 @@ async def async_setup_entry(
                 continue
             entities.append(DelonghiInfoSensor(coord, prop_name, key, friendly, icon))
         entities.append(DelonghiConnectionSensor(coord))
+        entities.append(DelonghiLastCommandSensor(coord))
     async_add_entities(entities)
 
 
@@ -168,3 +170,55 @@ class DelonghiConnectionSensor(_Base):
     @property
     def native_value(self) -> str:
         return self.coordinator.device.connection_status
+
+
+class DelonghiLastCommandSensor(_Base):
+    """Diagnostic: last command seen on the binary channel.
+
+    Surfaces the command sniffer (see coordinator). When the official Coffee
+    Link app sends a command, its exact base64 bytes appear here as the state,
+    decoded in the attributes - including ``matches_integration`` which tells
+    whether the app's bytes match what this integration would generate. This is
+    the ground-truth needed to debug models where commands are silently ignored.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coord: DelonghiCoordinator) -> None:
+        super().__init__(
+            coord, "last_captured_command", "Last Captured Command", "mdi:radar"
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        rec = self.coordinator.last_captured_command
+        if not rec:
+            return None
+        # Frames are short (<= ~24 base64 chars), well within the 255 limit.
+        return rec.get("raw_b64")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        rec = self.coordinator.last_captured_command or {}
+        keys = (
+            "origin",
+            "type",
+            "beverage_name",
+            "beverage_id",
+            "action_name",
+            "params",
+            "crc",
+            "crc_valid",
+            "matches_integration",
+            "builder_structural_b64",
+            "structural_b64",
+            "timestamp",
+            "captured_at",
+            "hex",
+        )
+        attrs = {k: rec[k] for k in keys if k in rec}
+        resp = self.coordinator.last_machine_response
+        if resp:
+            attrs["last_machine_response_hex"] = resp.get("hex")
+            attrs["last_machine_response_at"] = resp.get("captured_at")
+        return attrs
