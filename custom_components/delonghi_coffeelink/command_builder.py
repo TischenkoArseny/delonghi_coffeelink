@@ -135,6 +135,33 @@ def deserialize_learned_frames(
     return _section("start"), _section("stop"), wake
 
 
+def recipe_dump_lines(props: dict) -> list[str]:
+    """Render the machine's stored recipe datapoints for a read-only diagnostic.
+
+    Returns ``name = <hex>`` lines for every property whose name contains
+    ``_rec_`` (the per-beverage recipe definitions the machine stores, e.g.
+    ``d059_rec_1_espresso``) plus the active-profile indicator. Base64 blobs are
+    decoded to hex; other values are shown as-is. Sends nothing to the machine -
+    used to confirm whether a stored recipe maps to the beverage command's
+    variable recipe block (the path to drop the "teach from the app" step).
+    """
+    lines: list[str] = []
+    for name in sorted(props):
+        if "_rec_" not in name and name != "d286_mach_sett_profile":
+            continue
+        prop = props.get(name)
+        value = prop.get("value") if isinstance(prop, dict) else prop
+        if isinstance(value, str) and value.strip():
+            try:
+                rendered = base64.b64decode("".join(value.split()), validate=True).hex(" ")
+            except (ValueError, binascii.Error):
+                rendered = value
+        else:
+            rendered = repr(value)
+        lines.append(f"{name} = {rendered}")
+    return lines
+
+
 def replay_with_timestamp(value_b64: str, timestamp: int | None = None) -> str:
     """Re-emit a captured frame with a fresh timestamp and nothing else changed.
 

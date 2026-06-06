@@ -15,6 +15,7 @@ from .command_builder import (
     builder_structural_b64,
     decode_command,
     deserialize_learned_frames,
+    recipe_dump_lines,
     serialize_learned_frames,
     summarize_decoded,
 )
@@ -258,6 +259,25 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Restored %d learned Eletta frame(s) for dsn=%s", total, self.device.dsn
             )
+
+    def log_recipe_datapoints(self) -> None:
+        """Dump the machine's stored recipe datapoints to the log (read-only).
+
+        Diagnostic for the "zero-touch" work: lets a tester surface the recipes
+        the machine stores so the recipe->command mapping can be confirmed.
+        Sends nothing to the machine.
+        """
+        if not self.data:
+            _LOGGER.warning("Recipe dump requested but no data fetched yet.")
+            return
+        lines = recipe_dump_lines(self.data)
+        _LOGGER.warning(
+            "=== DeLonghi recipe datapoint dump (dsn=%s, %d entries) BEGIN ===\n"
+            "%s\n=== recipe datapoint dump END ===",
+            self.device.dsn,
+            len(lines),
+            "\n".join(lines),
+        )
 
     def _learned_storage_data(self) -> dict:
         """Callback for the debounced Store save."""

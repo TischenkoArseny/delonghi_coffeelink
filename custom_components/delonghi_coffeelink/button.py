@@ -5,6 +5,7 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -28,6 +29,7 @@ async def async_setup_entry(
         for bev_id, key, friendly, icon in BEVERAGES:
             entities.append(DelonghiStartBeverageButton(coord, bev_id, key, friendly, icon))
         entities.append(DelonghiStopButton(coord))
+        entities.append(DelonghiDumpRecipesButton(coord))
     async_add_entities(entities)
 
 
@@ -98,3 +100,22 @@ class DelonghiStopButton(_Base):
         # a future version can track current bev and stop it appropriately.
         _LOGGER.info("Generic stop command")
         await self.coordinator.async_send_beverage(0x10, 0x02)
+
+
+class DelonghiDumpRecipesButton(_Base):
+    """Diagnostic: log the machine's stored recipe datapoints (read-only).
+
+    Sends nothing to the machine - only dumps the recipe definitions it already
+    reports, so the recipe->command mapping can be confirmed (zero-touch work).
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coord: DelonghiCoordinator) -> None:
+        super().__init__(coord)
+        self._attr_unique_id = f"{coord.device.dsn}_dump_recipes"
+        self._attr_name = "Dump Recipe Datapoints"
+        self._attr_icon = "mdi:bug-outline"
+
+    async def async_press(self) -> None:
+        self.coordinator.log_recipe_datapoints()

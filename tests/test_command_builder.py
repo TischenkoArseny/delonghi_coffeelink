@@ -299,6 +299,38 @@ def test_replay_tolerates_garbage():
     assert isinstance(cb.replay_with_timestamp("AAEC", timestamp=1), str)  # too short
 
 
+# --- recipe datapoint dump (zero-touch diagnostic) -------------------------
+
+def test_recipe_dump_lines_selects_and_decodes():
+    """Only recipe datapoints (+ active profile) are dumped; base64 blobs decode
+    to hex, non-recipe properties are ignored."""
+    esp_b64 = base64.b64encode(bytes.fromhex("01 00 28 02 04 08 00 1b".replace(" ", ""))).decode()
+    props = {
+        "d059_rec_1_espresso": {"value": esp_b64},
+        "d286_mach_sett_profile": {"value": 1},
+        "software_version": {"value": "1.2.3"},   # not a recipe -> skipped
+        "d704_tot_bev_espressi": {"value": "x"},   # counter, not _rec_ -> skipped
+    }
+    lines = cb.recipe_dump_lines(props)
+    assert lines == [
+        "d059_rec_1_espresso = 01 00 28 02 04 08 00 1b",
+        "d286_mach_sett_profile = 1",
+    ]
+
+
+def test_recipe_dump_lines_handles_non_base64_and_empty():
+    """Non-base64 strings are shown as-is; missing/None values never raise."""
+    props = {
+        "d060_rec_1_regular": {"value": "not base64 !!"},
+        "d061_rec_1_long_coffee": {"value": None},
+        "d062_rec_1_2x_espresso": "raw-string-not-dict",
+    }
+    lines = cb.recipe_dump_lines(props)
+    assert "d060_rec_1_regular = not base64 !!" in lines
+    assert any(line.startswith("d061_rec_1_long_coffee = ") for line in lines)
+    assert "d062_rec_1_2x_espresso = raw-string-not-dict" in lines
+
+
 # --- learned-frame persistence (serialize/deserialize) ---------------------
 
 def test_learned_frames_roundtrip():

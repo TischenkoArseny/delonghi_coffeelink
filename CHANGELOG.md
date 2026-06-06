@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.7] - 2026-06-06
+
+### Added
+- **Diagnostic button "Dump Recipe Datapoints"** (read-only). Logs the recipe definitions the machine already reports (`d059_rec_1_*` …) plus the active profile, decoded to hex, between clear `BEGIN`/`END` markers. Sends nothing to the machine. This is the data needed to confirm whether a stored recipe maps to the beverage command's variable recipe block - the path to drop the one-time "trigger the drink from the app" learning step (zero-touch).
+
 ## [0.3.6] - 2026-06-06
 
 ### Fixed
