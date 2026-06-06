@@ -37,6 +37,13 @@ CMD_RESPONSE_PREFIX = 0xd0  # Machine -> app
 CMD_LENGTH = 0x0d       # 13 bytes payload
 CMD_FAMILY_BREW = bytes([0x83, 0xf0])  # Brew beverage command family
 
+# Eletta Explore (oem_model=DL-striker-cb) beverage frames carry a variable
+# length recipe block terminated by this 2-byte trailer, then the CRC. The Soul
+# (DL-millcore) frame has no trailer (fixed 6-byte recipe). See command_builder.
+ELETTA_RECIPE_TRAILER = bytes([0x01, 0x0a])
+# oem_model prefix of the Eletta Explore family (app_data_request channel).
+ELETTA_OEM_PREFIX = "DL-striker"
+
 # Actions
 ACTION_START = 0x01
 ACTION_STOP = 0x02

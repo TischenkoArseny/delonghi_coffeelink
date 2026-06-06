@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-06-06
+
+### Added
+- **Eletta Explore (`oem_model=DL-striker-cb`) beverage support via recipe replay.** Captured app frames (issue #1) proved the Eletta beverage frame is *not* the Soul's fixed 13-byte frame: it carries a **variable-length recipe block** (quantity in ml, intensity, milk all encoded inline) terminated by a `01 0a` trailer before the CRC. The CRC itself is unchanged (CRC16/AUG-CCITT) - it validates once the frame is parsed at the right length. The integration learns the exact recipe bytes the official Coffee Link app sends for each beverage (from the existing command sniffer) and **replays** them, so quantity/intensity/milk are reproduced faithfully. New `build_eletta_beverage_command`, gated by model (`is_eletta`); the PrimaDonna Soul path is untouched.
+
+### Fixed
+- `decode_command` now parses the beverage frame using its self-describing length byte, so it correctly handles **both** the fixed Soul frame and the variable-length Eletta frame (previously it read Soul-fixed offsets, which made captured Eletta frames show `crc_valid: false` and a truncated `params`). The diagnostic sensor now reports `style` (soul/eletta) and the full `recipe` block, and Eletta frames show `crc_valid: true`.
+
+### Notes
+- Until a beverage has been brewed once from the official app (so its bytes can be captured), pressing that beverage in Home Assistant logs a warning and sends a best-effort Soul frame. Reading the machine's stored recipe datapoints to remove this one-time step is the next step.
+
 ## [0.3.3] - 2026-06-05
 
 ### Fixed

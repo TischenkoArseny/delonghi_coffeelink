@@ -164,5 +164,127 @@ def test_summarize_beverage_includes_match_flag():
     assert "Espresso" in s and "matches_integration=True" in s
 
 
+# --- Eletta Explore (DL-striker-cb) variable-length frames ------------------
+#
+# Real frames captured from the official Coffee Link app via the v0.3.3
+# diagnostic sniffer (issue #1, MrSpongy ECAM45x). Each is the full app payload
+# (header + variable recipe block + 01 0a trailer + CRC + timestamp + 4-byte
+# device signature). The integration emits everything EXCEPT the device
+# signature, so build_eletta_beverage_command must reproduce frame[:-4].
+
+# (name, bev_id, action, recipe_hex, full_app_frame_hex, timestamp)
+_ELETTA_FRAMES = [
+    (
+        "Hot Water", 0x10, 0x03, "0f 00 96 1b 01 1c 01 27",
+        "0d 11 83 f0 10 03 0f 00 96 1b 01 1c 01 27 01 0a 9a 26 6a 24 39 14 00 d3 2f 8c",
+        0x6a243914,
+    ),
+    (
+        "Espresso", 0x01, 0x02, "01 00 28 02 04 08 00 1b",
+        "0d 11 83 f0 01 02 01 00 28 02 04 08 00 1b 01 0a 7e 68 6a 24 68 ef 00 d3 2f 8c",
+        0x6a2468ef,
+    ),
+    (
+        "Cappuccino", 0x07, 0x03, "01 00 41 02 03 09 00 d3 0b 02 1b 01 1c 02 27",
+        "0d 18 83 f0 07 03 01 00 41 02 03 09 00 d3 0b 02 1b 01 1c 02 27 01 0a d3 c7 "
+        "6a 24 68 50 00 d3 2f 8c",
+        0x6a246850,
+    ),
+    (
+        "Flat White", 0x0a, 0x03,
+        "01 00 5a 02 03 09 01 90 0b 01 0c 01 1b 03 1c 02 27",
+        "0d 1a 83 f0 0a 03 01 00 5a 02 03 09 01 90 0b 01 0c 01 1b 03 1c 02 27 01 0a "
+        "ed 36 6a 24 67 ce 00 d3 2f 8c",
+        0x6a2467ce,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "name, bev_id, action, recipe_hex, frame_hex, ts", _ELETTA_FRAMES
+)
+def test_eletta_build_reproduces_app_frame(name, bev_id, action, recipe_hex, frame_hex, ts):
+    """The Eletta builder must reproduce the app's frame byte-for-byte (minus the
+    4-byte device signature the app appends and the integration does not)."""
+    recipe = bytes.fromhex(recipe_hex.replace(" ", ""))
+    built = cb.build_eletta_beverage_command(bev_id, action, recipe, timestamp=ts)
+    app_frame = bytes.fromhex(frame_hex.replace(" ", ""))
+    assert built == app_frame[:-4]  # drop the device signature
+
+
+@pytest.mark.parametrize(
+    "name, bev_id, action, recipe_hex, frame_hex, ts", _ELETTA_FRAMES
+)
+def test_eletta_decode_variable_length(name, bev_id, action, recipe_hex, frame_hex, ts):
+    """Decoding a captured Eletta frame yields style=eletta, a valid CRC (proving
+    the existing CRC algorithm already covers Eletta), and the full recipe block."""
+    b64 = base64.b64encode(bytes.fromhex(frame_hex.replace(" ", ""))).decode()
+    d = cb.decode_command(b64)
+    assert d["type"] == "beverage"
+    assert d["style"] == "eletta"
+    assert d["beverage_id"] == f"0x{bev_id:02x}"
+    assert d["action"] == action
+    assert d["recipe"] == recipe_hex
+    assert d["crc_valid"] is True
+    assert d["timestamp"] == ts
+
+
+def test_eletta_roundtrip_decode_of_built_frame():
+    """build -> decode round-trip preserves the recipe block."""
+    recipe = bytes.fromhex("01 00 28 02 04 08 00 1b".replace(" ", ""))
+    built = cb.build_eletta_beverage_command(0x01, 0x02, recipe, timestamp=0x6a2468ef)
+    d = cb.decode_command(base64.b64encode(built).decode())
+    assert d["style"] == "eletta"
+    assert bytes.fromhex(d["recipe"].replace(" ", "")) == recipe
+    assert d["crc_valid"] is True
+
+
+def test_eletta_structural_is_not_compared():
+    """Eletta frames are replayed from captured bytes, so builder_structural_b64
+    returns None (a synthesized comparison would be meaningless)."""
+    frame_hex = _ELETTA_FRAMES[0][4]
+    d = cb.decode_command(base64.b64encode(bytes.fromhex(frame_hex.replace(" ", ""))).decode())
+    assert d["style"] == "eletta"
+    assert cb.builder_structural_b64(d) is None
+
+
+def test_soul_frame_still_decodes_as_soul():
+    """No regression: the fixed Soul frame keeps style=soul and its 6-byte recipe."""
+    d = cb.decode_command("DQ2D8BABDwD6GwEGgSRqILPb")  # Soul hot water
+    assert d["style"] == "soul"
+    assert d["recipe"] == "0f 00 fa 1b 01 06"
+    assert d["crc_valid"] is True
+
+
+# --- replay_with_timestamp (Eletta verbatim frame replay) ------------------
+
+def test_replay_swaps_only_timestamp_and_keeps_crc_valid():
+    """Replaying a captured Eletta frame changes only the 4 timestamp bytes; the
+    action, recipe block, CRC and trailing device signature are all preserved,
+    and the CRC stays valid (the timestamp is outside the checksummed region)."""
+    app_frame_hex = (
+        "0d 18 83 f0 07 03 01 00 41 02 03 09 00 d3 0b 02 1b 01 1c 02 27 01 0a d3 c7 "
+        "6a 24 68 50 00 d3 2f 8c"  # Cappuccino, with original ts + device signature
+    )
+    original = base64.b64encode(bytes.fromhex(app_frame_hex.replace(" ", ""))).decode()
+    replayed = cb.replay_with_timestamp(original, timestamp=0x11223344)
+    orig_raw = base64.b64decode(original)
+    new_raw = base64.b64decode(replayed)
+    # frame_len = length byte + 1; timestamp lives at [frame_len : frame_len+4].
+    frame_len = orig_raw[1] + 1
+    assert new_raw[:frame_len] == orig_raw[:frame_len]          # frame + CRC intact
+    assert new_raw[frame_len : frame_len + 4] == bytes.fromhex("11223344")
+    assert new_raw[frame_len + 4 :] == orig_raw[frame_len + 4 :]  # device signature kept
+    # And it still decodes as a valid Eletta frame.
+    d = cb.decode_command(replayed)
+    assert d["style"] == "eletta" and d["crc_valid"] is True
+    assert d["timestamp"] == 0x11223344
+
+
+def test_replay_tolerates_garbage():
+    """Never raises on odd input (diagnostic/runtime safety)."""
+    assert isinstance(cb.replay_with_timestamp("AAEC", timestamp=1), str)  # too short
+
+
 def test_summarize_handles_error():
     assert "undecodable" in cb.summarize_decoded(cb.decode_command(""))

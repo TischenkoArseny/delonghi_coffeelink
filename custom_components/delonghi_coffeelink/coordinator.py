@@ -16,9 +16,11 @@ from .command_builder import (
     summarize_decoded,
 )
 from .const import (
+    ACTION_STOP,
     COMMAND_PROPERTY_CANDIDATES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    ELETTA_OEM_PREFIX,
     RESPONSE_PROPERTY_CANDIDATES,
 )
 
@@ -54,6 +56,14 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Last decoded frames, surfaced via the diagnostic sensor.
         self.last_captured_command: dict | None = None
         self.last_machine_response: dict | None = None
+        # Eletta (DL-striker-cb) frame replay: the Soul-style fixed recipe is
+        # ignored by Eletta machines, which expect a variable-length recipe block
+        # (and a different "start" action byte, plus a device signature). Rather
+        # than rebuild all that, we learn the exact frame the official app sends
+        # per beverage (sniffed below) and replay it verbatim with only a fresh
+        # timestamp. Keyed by beverage_id; start and stop frames kept separately.
+        self.learned_start_frames: dict[int, str] = {}
+        self.learned_stop_frames: dict[int, str] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch all properties + refresh device meta."""
@@ -170,6 +180,8 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 decoded["matches_integration"] = decoded["structural_b64"] == structural
                 decoded["builder_structural_b64"] = structural
             self.last_captured_command = decoded
+            if origin == "app":
+                self._maybe_learn_frame(decoded)
             summary = summarize_decoded(decoded)
             if origin == "app":
                 _LOGGER.warning(
@@ -193,11 +205,84 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Remember a value we wrote so the sniffer won't flag it as app traffic."""
         self._sent_values.append(value)
 
+    @property
+    def is_eletta(self) -> bool:
+        """True for the Eletta Explore family (variable-length recipe frames).
+
+        Detected by oem_model, with the resolved command property as a fallback
+        (Eletta uses ``app_data_request``, Soul uses ``data_request``).
+        """
+        oem = (self.device.oem_model or "")
+        if oem.startswith(ELETTA_OEM_PREFIX):
+            return True
+        return self.command_property == "app_data_request"
+
+    def _maybe_learn_frame(self, decoded: dict) -> None:
+        """Learn the exact frame the official app sent for a beverage.
+
+        Eletta machines ignore the Soul-style fixed recipe; replaying the app's
+        own frame verbatim is the reliable way to reproduce a beverage (quantity
+        / intensity / milk, the right start-action byte, and the device signature
+        are all preserved). Stop frames (action 0x02) are kept separately from
+        start frames so a captured stop never gets replayed for a start press.
+        """
+        if decoded.get("type") != "beverage" or decoded.get("style") != "eletta":
+            return
+        bev_hex = decoded.get("beverage_id")
+        raw_b64 = decoded.get("raw_b64")
+        if not bev_hex or not raw_b64:
+            return
+        try:
+            bev_id = int(bev_hex, 16)
+        except (ValueError, TypeError):
+            return
+        table = (
+            self.learned_stop_frames
+            if decoded.get("action") == ACTION_STOP
+            else self.learned_start_frames
+        )
+        if table.get(bev_id) != raw_b64:
+            table[bev_id] = raw_b64
+            _LOGGER.info(
+                "Learned Eletta %s frame for beverage 0x%02x (%s): %s",
+                "stop" if decoded.get("action") == ACTION_STOP else "start",
+                bev_id,
+                decoded.get("beverage_name"),
+                raw_b64,
+            )
+
     async def async_send_beverage(self, beverage_id: int, action: int) -> None:
         """Build + send a beverage command via the resolved command property."""
-        from .command_builder import build_and_encode
+        from .command_builder import build_and_encode, replay_with_timestamp
 
-        value = build_and_encode(beverage_id, action)
+        if self.is_eletta:
+            table = self.learned_stop_frames if action == ACTION_STOP else self.learned_start_frames
+            learned = table.get(beverage_id)
+            if learned is not None:
+                value = replay_with_timestamp(learned)
+                _LOGGER.info(
+                    "Sending Eletta beverage 0x%02x (%s) via learned frame replay: %s",
+                    beverage_id,
+                    "stop" if action == ACTION_STOP else "start",
+                    value,
+                )
+            else:
+                # No capture yet: the Soul frame is known not to work on Eletta,
+                # but send it best-effort so the call doesn't fail, and tell the
+                # user how to teach the integration the right bytes.
+                value = build_and_encode(beverage_id, action)
+                _LOGGER.warning(
+                    "No learned %s frame for Eletta beverage 0x%02x yet. Trigger "
+                    "this drink once from the official Coffee Link app so Home "
+                    "Assistant can capture and replay its exact bytes. Sending a "
+                    "best-effort Soul frame meanwhile (the machine will likely "
+                    "ignore it).",
+                    "stop" if action == ACTION_STOP else "start",
+                    beverage_id,
+                )
+        else:
+            value = build_and_encode(beverage_id, action)
+
         self._record_sent(value)
         prop = self.command_property or COMMAND_PROPERTY_CANDIDATES[0]
         _LOGGER.info(

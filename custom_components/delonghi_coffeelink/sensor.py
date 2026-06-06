@@ -203,9 +203,11 @@ class DelonghiLastCommandSensor(_Base):
         keys = (
             "origin",
             "type",
+            "style",
             "beverage_name",
             "beverage_id",
             "action_name",
+            "recipe",
             "params",
             "crc",
             "crc_valid",
