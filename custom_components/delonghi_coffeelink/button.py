@@ -26,6 +26,7 @@ async def async_setup_entry(
     entities: list[ButtonEntity] = []
     for coord in coordinators:
         entities.append(DelonghiWakeButton(coord))
+        entities.append(DelonghiStandbyButton(coord))
         for bev_id, key, friendly, icon in BEVERAGES:
             entities.append(DelonghiStartBeverageButton(coord, bev_id, key, friendly, icon))
         entities.append(DelonghiStopButton(coord))
@@ -83,6 +84,25 @@ class DelonghiWakeButton(_Base):
     async def async_press(self) -> None:
         _LOGGER.info("Sending WAKE to machine")
         await self.coordinator.async_send_wake()
+
+
+class DelonghiStandbyButton(_Base):
+    """Put the machine in standby / power it off (cmd family 0x84 0x0f, params 01 01).
+
+    Same effect as pressing the physical power button. Validated live on the
+    PrimaDonna Soul; on Eletta-style models the learned device signature is
+    appended (see coordinator.async_send_standby).
+    """
+
+    def __init__(self, coord: DelonghiCoordinator) -> None:
+        super().__init__(coord)
+        self._attr_unique_id = f"{coord.device.dsn}_standby"
+        self._attr_name = "Standby"
+        self._attr_icon = "mdi:power-standby"
+
+    async def async_press(self) -> None:
+        _LOGGER.info("Sending STANDBY to machine")
+        await self.coordinator.async_send_standby()
 
 
 class DelonghiStopButton(_Base):

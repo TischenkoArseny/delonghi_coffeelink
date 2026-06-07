@@ -424,3 +424,45 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.info("Sending WAKE cmd via %s: %s", prop, value)
         await self.client.async_set_property_value(self.device.dsn, prop, value)
         await self.async_request_refresh()
+
+    def _learned_device_signature(self) -> bytes | None:
+        """The 4-byte per-device signature carried by learned app frames (the
+        wake frame first, else any learned beverage frame)."""
+        from .command_builder import device_signature_from_frame
+
+        for frame in (
+            self.learned_wake_frame,
+            *self.learned_start_frames.values(),
+            *self.learned_stop_frames.values(),
+        ):
+            sig = device_signature_from_frame(frame)
+            if sig is not None:
+                return sig
+        return None
+
+    async def async_send_standby(self) -> None:
+        """Send the STANDBY / power-off command (84 0f, params 01 01).
+
+        Always synthesized - the official app has no power-off control to
+        capture. Validated live on the reference Soul; on learn-and-replay
+        models the per-device signature from a learned frame is appended.
+        """
+        from .command_builder import build_standby_encoded
+
+        value = self.profile.standby_value(self._learned_device_signature())
+        if value is None:
+            # Learn-and-replay model with no learned frame yet: no signature to
+            # append. Send a best-effort unsigned frame and tell the user.
+            value = build_standby_encoded()
+            _LOGGER.warning(
+                "No learned frame for this %s yet, so the standby command is "
+                "sent without the device signature and the machine may ignore "
+                "it. Trigger any command once from the official Coffee Link "
+                "app (e.g. power-on) so Home Assistant can learn the signature.",
+                self.profile.label,
+            )
+        self._record_sent(value)
+        prop = self.command_property or COMMAND_PROPERTY_CANDIDATES[0]
+        _LOGGER.info("Sending STANDBY cmd via %s: %s", prop, value)
+        await self.client.async_set_property_value(self.device.dsn, prop, value)
+        await self.async_request_refresh()

@@ -110,6 +110,77 @@ def test_decode_tolerates_ayla_trailing_newline():
     assert cb.builder_structural_b64(d) == d["structural_b64"]
 
 
+# --- standby command ---------------------------------------------------------
+
+def test_build_standby_command_structure():
+    # Frame validated LIVE on the reference Soul (machine powered off,
+    # 2026-06-07): 0d 07 84 0f 01 01 00 41 <ts>.
+    cmd = cb.build_standby_command(timestamp=0x6A258952)
+    assert cmd.hex(" ") == "0d 07 84 0f 01 01 00 41 6a 25 89 52"
+
+
+def test_build_standby_command_with_signature():
+    # Eletta-style: the 4-byte device signature goes AFTER the timestamp,
+    # so the CRC is unchanged.
+    sig = bytes.fromhex("00d32f8c")
+    cmd = cb.build_standby_command(timestamp=0x6A258952, signature=sig)
+    assert cmd.hex(" ") == "0d 07 84 0f 01 01 00 41 6a 25 89 52 00 d3 2f 8c"
+    assert cb.crc16_aug_ccitt(cmd[0:6]) == 0x0041
+
+
+def test_decode_standby_is_power_but_not_learnable_as_wake():
+    # A standby frame decodes as power family but the wake-learning guard
+    # must never store it as the wake frame.
+    d = cb.decode_command(base64.b64encode(cb.build_standby_command()).decode())
+    assert d["type"] == "power"
+    assert d["params"] == "01 01"
+    assert d["crc_valid"] is True
+    assert cb.is_wake_power_frame(d) is False
+
+
+def test_standby_profile_values():
+    soul = mp.SoulProfile()
+    # Soul synthesizes without signature (validated live).
+    out = soul.standby_value(None)
+    d = cb.decode_command(out)
+    assert d["type"] == "power" and d["params"] == "01 01" and d["crc_valid"] is True
+    eletta = mp.ElettaProfile()
+    # Eletta requires the learned device signature...
+    assert eletta.standby_value(None) is None
+    # ...and appends it after the timestamp when available.
+    out = eletta.standby_value(bytes.fromhex("00d32f8c"))
+    raw = base64.b64decode(out)
+    assert raw[4:6].hex(" ") == "01 01"
+    assert raw[-4:].hex(" ") == "00 d3 2f 8c"
+
+
+# --- device_signature_from_frame ---------------------------------------------
+
+def test_device_signature_from_learned_wake_frame():
+    # Real app power-on capture (MrSpongy): 8-byte wake + ts + 00 d3 2f 8c sig.
+    app_wake_hex = "0d 07 84 0f 02 01 55 12 6a 24 79 c0 00 d3 2f 8c"
+    b64 = base64.b64encode(bytes.fromhex(app_wake_hex.replace(" ", ""))).decode()
+    assert cb.device_signature_from_frame(b64) == bytes.fromhex("00d32f8c")
+
+
+def test_device_signature_from_beverage_frame():
+    # Eletta beverage frames carry the signature too (variable length: the
+    # structural part is length_byte + 1). Synthetic frame built accordingly.
+    structural = bytes.fromhex("0d1083f010031c0119010f00961b010a81")  # len 0x10 -> 17 bytes
+    frame = structural + (0x6A2479C0).to_bytes(4, "big") + bytes.fromhex("00d32f8c")
+    b64 = base64.b64encode(frame).decode()
+    assert cb.device_signature_from_frame(b64) == bytes.fromhex("00d32f8c")
+
+
+def test_device_signature_absent_or_junk():
+    # 12-byte synthesized wake has no signature.
+    b64 = base64.b64encode(cb.build_wake_command(timestamp=0x6A1744A2)).decode()
+    assert cb.device_signature_from_frame(b64) is None
+    assert cb.device_signature_from_frame(None) is None
+    assert cb.device_signature_from_frame("not base64 !!!") is None
+    assert cb.device_signature_from_frame("AA==") is None  # too short
+
+
 # --- is_wake_power_frame (wake-learning guard) ------------------------------
 
 def test_is_wake_power_frame_accepts_real_wake():

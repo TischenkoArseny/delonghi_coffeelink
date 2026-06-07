@@ -21,6 +21,7 @@ Any DeLonghi coffee machine exposed by the Coffee Link mobile app through Ayla N
 ## Features
 
 - 21 beverage buttons (Espresso, Cappuccino, Latte Macchiato, Hot Water, Tea, etc.)
+- **Wake** and **Standby** buttons (power the machine on / off remotely)
 - Counters sensors (total beverages, per-drink counters, descale status)
 - Generic Stop button
 - Services for raw binary command injection (advanced use)
@@ -39,6 +40,13 @@ So on an Eletta Explore there is a **one-time teach step**, after which everythi
 **Power-on (Wake)**
 1. With Home Assistant running, **power the machine on once from the official app.**
 2. From then on the **Wake** button powers it from standby.
+
+**Power-off (Standby)**
+The official app has no power-off control, so this frame is always synthesized
+(`84 0f`, params `01 01` - validated live on the reference Soul). On Eletta-style
+models it needs the per-device signature, which is taken from any frame already
+learned (e.g. the wake frame) - so once the Wake teach step above is done, the
+**Standby** button works too.
 
 > If you change a drink's settings in the app (e.g. quantity), start it once more from the app so Home Assistant re-learns the new bytes.
 

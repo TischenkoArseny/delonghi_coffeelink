@@ -17,7 +17,12 @@ its ``matches()`` rule and (if it needs the learn-and-replay path) set
 """
 from __future__ import annotations
 
-from .command_builder import build_and_encode, build_wake_encoded, replay_with_timestamp
+from .command_builder import (
+    build_and_encode,
+    build_standby_encoded,
+    build_wake_encoded,
+    replay_with_timestamp,
+)
 from .const import ELETTA_OEM_PREFIX
 
 
@@ -51,6 +56,16 @@ class ModelProfile:
         """Return the base64 wake/power-on value, or ``None`` if a learned frame
         is required but not available yet."""
         return build_wake_encoded()
+
+    def standby_value(self, signature: bytes | None) -> str | None:
+        """Return the base64 standby/power-off value.
+
+        Always synthesized (the official app exposes no power-off control, so
+        there is nothing to learn). ``signature`` is the 4-byte device
+        signature extracted from a learned frame, for models that require it;
+        the synthesized Soul path ignores it.
+        """
+        return build_standby_encoded()
 
 
 class SoulProfile(ModelProfile):
@@ -99,6 +114,16 @@ class ElettaProfile(ModelProfile):
         if learned_frame is not None:
             return replay_with_timestamp(learned_frame)
         return None
+
+    def standby_value(self, signature: bytes | None) -> str | None:
+        """Standby is synthesized even on learn-and-replay models (the app has
+        no power-off control to capture), but the Eletta ignores power frames
+        without the per-device signature - so it is appended from any learned
+        frame. ``None`` until a frame carrying the signature has been learned.
+        """
+        if signature is None:
+            return None
+        return build_standby_encoded(signature)
 
 
 # Most specific first; the generic default is applied explicitly in profile_for.

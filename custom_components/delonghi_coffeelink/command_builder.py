@@ -16,6 +16,7 @@ from .const import (
     CRC_POLY,
     DEFAULT_RECIPE_PARAMS,
     ELETTA_RECIPE_TRAILER,
+    POWER_STANDBY_PARAMS,
     POWER_WAKE_PARAMS,
 )
 
@@ -192,25 +193,75 @@ def build_and_encode(beverage_id: int, action: int, params: bytes = DEFAULT_RECI
     return encode_command(build_beverage_command(beverage_id, action, params))
 
 
-def build_wake_command(timestamp: int | None = None) -> bytes:
+def build_power_command(
+    params: bytes, timestamp: int | None = None, signature: bytes | None = None
+) -> bytes:
     """
-    Build the WAKE / power-on command (different family 0x84 0x0f).
+    Build a power-family command (0x84 0x0f): wake, standby, ...
 
-    Captured from app: 0d 07 84 0f 02 01 <crc16> <timestamp>
-    Length byte = 0x07, payload before CRC = 6 bytes.
+    Frame: 0d 07 84 0f <params 2B> <crc16> <timestamp> [<device signature 4B>]
+    Length byte = 0x07, payload before CRC = 6 bytes. The optional 4-byte
+    device signature goes AFTER the timestamp (so the CRC is unaffected);
+    some models (Eletta Explore) ignore power commands without it.
     """
     if timestamp is None:
         timestamp = int(time.time())
-    header = bytes([CMD_PREFIX, 0x07, CMD_FAMILY_POWER[0], CMD_FAMILY_POWER[1]]) + POWER_WAKE_PARAMS
+    header = bytes([CMD_PREFIX, 0x07, CMD_FAMILY_POWER[0], CMD_FAMILY_POWER[1]]) + params
     if len(header) != 6:
-        raise ValueError(f"Wake header must be 6 bytes, got {len(header)}")
+        raise ValueError(f"Power header must be 6 bytes, got {len(header)}")
     crc = crc16_aug_ccitt(header)
-    return header + crc.to_bytes(2, "big") + timestamp.to_bytes(4, "big")
+    frame = header + crc.to_bytes(2, "big") + timestamp.to_bytes(4, "big")
+    if signature:
+        frame += signature
+    return frame
+
+
+def build_wake_command(timestamp: int | None = None) -> bytes:
+    """Build the WAKE / power-on command (captured: 0d 07 84 0f 02 01 55 12 <ts>)."""
+    return build_power_command(POWER_WAKE_PARAMS, timestamp)
 
 
 def build_wake_encoded() -> str:
     """Shortcut: build wake command + base64 encode."""
     return encode_command(build_wake_command())
+
+
+def build_standby_command(
+    timestamp: int | None = None, signature: bytes | None = None
+) -> bytes:
+    """Build the STANDBY / power-off command (0d 07 84 0f 01 01 00 41 <ts>).
+
+    Reported on Eletta Explore (issue #1) and validated live on the reference
+    PrimaDonna Soul: the machine powers off as if the physical button was
+    pressed. The official app exposes no power-off control, so this frame
+    cannot be learned - it is always synthesized.
+    """
+    return build_power_command(POWER_STANDBY_PARAMS, timestamp, signature)
+
+
+def build_standby_encoded(signature: bytes | None = None) -> str:
+    """Shortcut: build standby command + base64 encode."""
+    return encode_command(build_standby_command(signature=signature))
+
+
+def device_signature_from_frame(frame_b64: str | None) -> bytes | None:
+    """Extract the 4-byte device signature from a learned app frame.
+
+    App frames carry a per-machine constant after the timestamp (e.g.
+    ``00 d3 2f 8c``). Frame layout: <structural = length_byte + 1> <ts 4B>
+    [<signature 4B>]. Returns ``None`` if the frame has no signature.
+    """
+    if not frame_b64:
+        return None
+    try:
+        raw = base64.b64decode(frame_b64.strip(), validate=True)
+    except (binascii.Error, ValueError, AttributeError):
+        return None
+    if len(raw) < 2:
+        return None
+    structural_len = raw[1] + 1
+    sig = raw[structural_len + 4 : structural_len + 8]
+    return sig if len(sig) == 4 else None
 
 
 def is_wake_power_frame(decoded: dict) -> bool:

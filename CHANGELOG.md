@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.10] - 2026-06-07
+
+### Added
+- **Standby button - power the machine off remotely.** The power family (`0x84 0x0f`) has a standby payload (params `01 01`, CRC `0x0041`) first reported on an Eletta Explore by @TischenkoArseny (#1) and **validated live on the reference PrimaDonna Soul** (the machine powers off exactly as with the physical button). The official app exposes no power-off control, so the frame is always synthesized. On learn-and-replay models (Eletta) the per-device signature is appended from any already-learned frame (e.g. the wake frame); until one is learned, a best-effort unsigned frame is sent with a clear log message.
+
 ## [0.3.9] - 2026-06-07
 
 ### Fixed

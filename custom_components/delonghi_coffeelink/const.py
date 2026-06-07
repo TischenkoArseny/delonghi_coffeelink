@@ -55,6 +55,9 @@ ACTION_STOP = 0x02
 # Power / Wake command family (0x84 0x0f)
 CMD_FAMILY_POWER = bytes([0x84, 0x0f])
 POWER_WAKE_PARAMS = bytes([0x02, 0x01])  # observed wake command payload
+# Standby (power off) payload - reported on Eletta (issue #1) and validated
+# live on the reference PrimaDonna Soul (machine powered off, 2026-06-07).
+POWER_STANDBY_PARAMS = bytes([0x01, 0x01])
 
 # Default recipe params (from captured hot water command)
 # Bytes: temp_flag, reserved, quantity_low, quantity_high?, recipe_type, ???
