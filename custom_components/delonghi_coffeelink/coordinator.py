@@ -25,11 +25,13 @@ from .const import (
     COMMAND_PROPERTY_CANDIDATES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MONITOR_PROPERTY,
     RECIPE_STORE_SAVE_DELAY,
     RECIPE_STORE_VERSION,
     RESPONSE_PROPERTY_CANDIDATES,
 )
 from .model_profiles import profile_for
+from .monitor import parse_monitor_b64
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +82,9 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # why a built wake is ignored while a verbatim app replay works - so we
         # learn and replay the app's power-on frame too.
         self.learned_wake_frame: str | None = None
+        # Decoded d302_monitor_machine state (standby/ready/...), surfaced via
+        # the Machine Status sensor. Empty dict until a blob parses.
+        self.monitor: dict[str, Any] = {}
         self._store: Store = Store(
             hass, RECIPE_STORE_VERSION, f"{DOMAIN}_recipes_{device.dsn}"
         )
@@ -102,6 +107,7 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     props, RESPONSE_PROPERTY_CANDIDATES, "response", required=False
                 )
             self._sniff_app_traffic(props)
+            self._update_monitor(props)
             # Refresh device connection status
             devices = await self.client.async_get_devices()
             for d in devices:
@@ -111,6 +117,19 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return props
         except Exception as err:
             raise UpdateFailed(f"Error fetching Delonghi data: {err}") from err
+
+    def _update_monitor(self, props: dict[str, Any]) -> None:
+        """Decode the machine monitor blob (diagnostic; must never break the poll)."""
+        try:
+            prop = props.get(MONITOR_PROPERTY)
+            value = prop.get("value") if isinstance(prop, dict) else None
+            if isinstance(value, str) and value.strip():
+                self.monitor = parse_monitor_b64(value)
+            else:
+                self.monitor = {}
+        except Exception:  # noqa: BLE001 - diagnostic must not break polling
+            _LOGGER.debug("Monitor parse failed (non-fatal)", exc_info=True)
+            self.monitor = {}
 
     def _detect_property(
         self,
@@ -464,5 +483,13 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._record_sent(value)
         prop = self.command_property or COMMAND_PROPERTY_CANDIDATES[0]
         _LOGGER.info("Sending STANDBY cmd via %s: %s", prop, value)
+        await self.client.async_set_property_value(self.device.dsn, prop, value)
+        await self.async_request_refresh()
+
+    async def async_send_raw(self, value: str) -> None:
+        """Send a raw base64 command on the resolved command channel (advanced)."""
+        self._record_sent(value)
+        prop = self.command_property or COMMAND_PROPERTY_CANDIDATES[0]
+        _LOGGER.info("Sending RAW cmd via %s: %s", prop, value)
         await self.client.async_set_property_value(self.device.dsn, prop, value)
         await self.async_request_refresh()

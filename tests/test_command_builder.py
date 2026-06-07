@@ -41,6 +41,7 @@ if "delonghi_coffeelink" not in sys.modules:
 const = _load("const", "const.py")
 cb = _load("command_builder", "command_builder.py")
 mp = _load("model_profiles", "model_profiles.py")
+mon = _load("monitor", "monitor.py")
 
 
 # --- CRC -------------------------------------------------------------------
@@ -179,6 +180,50 @@ def test_device_signature_absent_or_junk():
     assert cb.device_signature_from_frame(None) is None
     assert cb.device_signature_from_frame("not base64 !!!") is None
     assert cb.device_signature_from_frame("AA==") is None  # too short
+
+
+# --- monitor (d302_monitor_machine parsing) ----------------------------------
+
+def _make_monitor_blob(status: int, progress: int = 0, accessory: int = 1) -> str:
+    """Build a synthetic MonitorV2 EcamPacket: prefix, length, data, crc, ts."""
+    contents = bytes([accessory, 0, 0, 0, 0, status, 0, progress]) + bytes(5)
+    data = bytes([mon.MONITOR_REQUEST_ID, 0xF0]) + contents
+    length = len(data) + 3  # data = raw[2 : length-1]
+    head = bytes([0xD0, length]) + data
+    crc = cb.crc16_aug_ccitt(head)
+    raw = head + crc.to_bytes(2, "big") + (0x6A258952).to_bytes(4, "big")
+    return base64.b64encode(raw).decode()
+
+
+def test_parse_monitor_ready():
+    out = mon.parse_monitor_b64(_make_monitor_blob(status=7, progress=3))
+    assert out == {
+        "status": 7,
+        "status_name": "ready",
+        "progress": 3,
+        "action": 0,
+        "accessory": 1,
+    }
+
+
+def test_parse_monitor_standby_and_unknown_code():
+    assert mon.parse_monitor_b64(_make_monitor_blob(status=0))["status_name"] == "standby"
+    out = mon.parse_monitor_b64(_make_monitor_blob(status=99))
+    assert out["status_name"] == "unknown" and out["status"] == 99
+
+
+def test_parse_monitor_rejects_bad_input():
+    # Never raises - returns {"error": ...} on anything malformed.
+    assert "error" in mon.parse_monitor_b64("")
+    assert "error" in mon.parse_monitor_b64("not base64 !!!")
+    assert "error" in mon.parse_monitor_b64(base64.b64encode(b"\xd0\x02").decode())
+    # Valid envelope but wrong request id (a command response, not MonitorV2).
+    resp = bytes.fromhex("d00783f0010064d969e8c98e")
+    assert "error" in mon.parse_monitor_b64(base64.b64encode(resp).decode())
+    # Corrupted CRC.
+    blob = base64.b64decode(_make_monitor_blob(status=7))
+    bad = blob[:-5] + bytes([blob[-5] ^ 0xFF]) + blob[-4:]
+    assert "error" in mon.parse_monitor_b64(base64.b64encode(bad).decode())
 
 
 # --- is_wake_power_frame (wake-learning guard) ------------------------------

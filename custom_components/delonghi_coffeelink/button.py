@@ -11,7 +11,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import BEVERAGES, DOMAIN, MANUFACTURER
+from .const import ACTION_START, ACTION_STOP, BEVERAGES, DOMAIN, MANUFACTURER
 from .coordinator import DelonghiCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class DelonghiStartBeverageButton(_Base):
 
     async def async_press(self) -> None:
         _LOGGER.info("Start beverage 0x%02x (%s)", self._bev_id, self._attr_name)
-        await self.coordinator.async_send_beverage(self._bev_id, 0x01)
+        await self.coordinator.async_send_beverage(self._bev_id, ACTION_START)
 
 
 class DelonghiWakeButton(_Base):
@@ -119,7 +119,7 @@ class DelonghiStopButton(_Base):
         # since that's the captured example. If machine needs the running beverage id,
         # a future version can track current bev and stop it appropriately.
         _LOGGER.info("Generic stop command")
-        await self.coordinator.async_send_beverage(0x10, 0x02)
+        await self.coordinator.async_send_beverage(0x10, ACTION_STOP)
 
 
 class DelonghiDumpRecipesButton(_Base):

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.11] - 2026-06-07
+
+### Added
+- **"Machine Status" sensor** - the machine's operational state (standby, waking_up, ready, rinsing, dispensing_hot_water, ...) decoded from the `d302_monitor_machine` monitor blob it already publishes, with progress/action/accessory as attributes. Contributed by @TischenkoArseny (cherry-picked from PR #5), derived from the DlghIoT client by Matthieu Guerquin-Kern (framagit.org/mattgk/dlghiot). Parsing is defensive: a blob that doesn't decode on a given model yields an unknown state with the parse error as attribute, and can never break the data update.
+
+### Changed
+- `start/stop` service handlers and buttons now use the `ACTION_START`/`ACTION_STOP` constants; the raw-command service goes through a proper `coordinator.async_send_raw` (also from PR #5).
+
 ## [0.3.10] - 2026-06-07
 
 ### Added

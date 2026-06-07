@@ -59,6 +59,27 @@ POWER_WAKE_PARAMS = bytes([0x02, 0x01])  # observed wake command payload
 # live on the reference PrimaDonna Soul (machine powered off, 2026-06-07).
 POWER_STANDBY_PARAMS = bytes([0x01, 0x01])
 
+# Machine monitor (d302_monitor_machine) - operational state published by the
+# machine. Status codes from the DlghIoT client (framagit.org/mattgk/dlghiot),
+# contributed via PR #5.
+MONITOR_PROPERTY = "d302_monitor_machine"
+MACHINE_STATUS = {
+    0: "standby",
+    1: "waking_up",
+    2: "going_to_sleep",
+    4: "descaling",
+    5: "preparing_steam",
+    6: "recovering",
+    7: "ready",
+    8: "rinsing",
+    10: "preparing_milk",
+    11: "dispensing_hot_water",
+    12: "cleaning_milk",
+    16: "preparing_chocolate",
+    17: "preparing_milk_alt",
+    29: "unknown",
+}
+
 # Default recipe params (from captured hot water command)
 # Bytes: temp_flag, reserved, quantity_low, quantity_high?, recipe_type, ???
 DEFAULT_RECIPE_PARAMS = bytes([0x0f, 0x00, 0xfa, 0x1b, 0x01, 0x06])
