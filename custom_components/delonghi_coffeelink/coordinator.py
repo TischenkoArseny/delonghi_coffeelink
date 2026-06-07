@@ -68,7 +68,11 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.response_property: str | None = None
         self.connected_property: str | None = None
         # Cloud session (ECAM / app_device_connected) — DlghIoT-compatible cache.
-        self._integration_app_id = normalize_signed_app_id(INTEGRATION_CLOUD_APP_ID)
+        # _integration_app_id may temporarily hold a foreign id (official app's
+        # session, adopted to ride it); it reverts to the default once the app
+        # releases the session - see _update_session_from_props.
+        self._default_app_id = normalize_signed_app_id(INTEGRATION_CLOUD_APP_ID)
+        self._integration_app_id = self._default_app_id
         self._last_connect_at: float = 0
         self._session_confirmed = False
         self._session_connect_lock = asyncio.Lock()
@@ -228,10 +232,19 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Parse app_id from poll data; must never break the poll."""
         try:
             app_id = self._app_id_from_props(props)
-            if app_id is not None and app_id == self._integration_app_id:
-                self._session_confirmed = True
-            else:
-                self._session_confirmed = False
+            self._session_confirmed = (
+                app_id is not None and app_id == self._integration_app_id
+            )
+            # An adopted foreign session (official app's id) is transient: once
+            # the machine reports no session holder, revert to our own id so we
+            # never keep a foreign session alive on the app's behalf.
+            if app_id == 0 and self._integration_app_id != self._default_app_id:
+                _LOGGER.info(
+                    "Foreign cloud session released on dsn=%s; reverting to own app_id",
+                    self.device.dsn,
+                )
+                self._integration_app_id = self._default_app_id
+                self._last_connect_at = 0
         except Exception:  # noqa: BLE001 - diagnostic must not break polling
             _LOGGER.debug("Session parse failed (non-fatal)", exc_info=True)
 
@@ -276,6 +289,11 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _maybe_schedule_session_refresh(self) -> None:
         if not self.profile.uses_cloud_session or not self.connected_property:
             return
+        if self._integration_app_id != self._default_app_id:
+            # Riding the official app's session (adopted id): never refresh it
+            # on the app's behalf - when it expires, app_id drops to 0 and
+            # _update_session_from_props reverts us to our own id.
+            return
         app_id = self._app_id_from_props(self.data) if self.data else None
         if self._session_is_fresh(app_id):
             _LOGGER.debug("Background cloud session refresh skipped (fresh)")
@@ -293,10 +311,14 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, send_fn: Callable[[], Awaitable[None]]
     ) -> None:
         try:
+            # The lock serializes concurrent cold connects: the first task does
+            # the POST + settle, the ones queued behind it find the session
+            # fresh and go straight to their send. No command is ever dropped.
             async with self._session_connect_lock:
-                await self._post_cloud_session()
-                await asyncio.sleep(CONNECT_SETTLE_DELAY)
-                self._last_connect_at = time.time()
+                if not self._session_is_fresh(None):
+                    await self._post_cloud_session()
+                    await asyncio.sleep(CONNECT_SETTLE_DELAY)
+                    self._last_connect_at = time.time()
             await send_fn()
         except Exception:  # noqa: BLE001 - best-effort send after failed connect
             _LOGGER.warning(
@@ -320,8 +342,11 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # When Coffee Link already holds the cloud session (app_id != 0 and != ours),
         # we adopt its app_id so HA commands ride the same session instead of fighting
-        # the official app. If the user opens Coffee Link while HA is commanding,
-        # behaviour is undefined (the app may hold a LAN lock); close the app first.
+        # the official app. The adoption is TRANSIENT: we never refresh a foreign
+        # session, and we revert to our own id once the app releases it (see
+        # _update_session_from_props / _maybe_schedule_session_refresh). If the user
+        # opens Coffee Link while HA is commanding, behaviour is undefined (the app
+        # may hold a LAN lock); close the app first.
         if app_id not in (None, 0) and app_id != self._integration_app_id:
             _LOGGER.info(
                 "Adopting foreign cloud session app_id=%d for dsn=%s",
@@ -338,19 +363,13 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await send_fn()
             return
 
-        if self._session_cold_task is not None and not self._session_cold_task.done():
-            _LOGGER.info(
-                "Cold cloud session connect already in progress for dsn=%s; "
-                "command not queued",
-                self.device.dsn,
-            )
-            return
-
         _LOGGER.info(
             "Scheduling cloud session connect for dsn=%s; command in ~%ds",
             self.device.dsn,
             CONNECT_SETTLE_DELAY,
         )
+        # Each command gets its own task; the connect lock serializes them, so
+        # commands pressed during a cold connect are queued, not dropped.
         self._session_cold_task = self.hass.async_create_background_task(
             self._cold_connect_then(send_fn),
             "delonghi cloud session cold connect",

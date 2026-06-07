@@ -42,6 +42,7 @@ const = _load("const", "const.py")
 cb = _load("command_builder", "command_builder.py")
 mp = _load("model_profiles", "model_profiles.py")
 mon = _load("monitor", "monitor.py")
+ac = _load("ayla_client", "ayla_client.py")
 
 
 # --- CRC -------------------------------------------------------------------
@@ -180,6 +181,36 @@ def test_device_signature_absent_or_junk():
     assert cb.device_signature_from_frame(None) is None
     assert cb.device_signature_from_frame("not base64 !!!") is None
     assert cb.device_signature_from_frame("AA==") is None  # too short
+
+
+# --- cloud session app_id helpers (DlghIoT convention) -----------------------
+
+def test_normalize_signed_app_id():
+    # 0xC0FFEE11 has the sign bit set -> negative int32 (matches the decimal
+    # form the machine reports in its app_id property).
+    assert ac.normalize_signed_app_id(0xC0FFEE11) == 0xC0FFEE11 - 0x100000000
+    # Below the sign bit: unchanged.
+    assert ac.normalize_signed_app_id(0x7FFFFFFF) == 0x7FFFFFFF
+    # Idempotent on already-signed values.
+    signed = ac.normalize_signed_app_id(0xC0FFEE11)
+    assert ac.normalize_signed_app_id(signed) == signed
+
+
+def test_integration_app_id_to_bytes():
+    # The wire bytes must be the literal big-endian id, sign handled correctly.
+    assert ac.integration_app_id_to_bytes(0xC0FFEE11).hex() == "c0ffee11"
+    assert ac.integration_app_id_to_bytes(0x7FFFFFFF).hex() == "7fffffff"
+    # Round-trip back to the unsigned form.
+    raw = ac.integration_app_id_to_bytes(const.INTEGRATION_CLOUD_APP_ID)
+    assert int.from_bytes(raw, "big", signed=True) & 0xFFFFFFFF == 0xC0FFEE11
+
+
+def test_cloud_session_profile_gating():
+    # Session is Eletta-only: the Soul (and the generic default) must never
+    # register a cloud session.
+    assert mp.SoulProfile().uses_cloud_session is False
+    assert mp.ModelProfile().uses_cloud_session is False
+    assert mp.ElettaProfile().uses_cloud_session is True
 
 
 # --- monitor (d302_monitor_machine parsing) ----------------------------------

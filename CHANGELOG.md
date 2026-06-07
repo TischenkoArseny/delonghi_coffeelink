@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.12] - 2026-06-07
+
+### Added
+- **Cloud session management for ECAM models** (PR #6 by @TischenkoArseny, following the DlghIoT `connect()` logic). Before commands on Eletta-style models, the integration registers a cloud app session by writing `timestamp + app_id` to `app_device_connected`. This targets the deep-standby problem in #1 (machine stops reacting to cloud commands until the official app "nudges" it). **Eletta-only** (`uses_cloud_session` profile flag): the PrimaDonna Soul path is byte-for-byte unchanged. Command frames are NOT modified - learned replay stays verbatim; the session id (`0xC0FFEE11`, DlghIoT convention) is used only for the session property write. Cold connect runs in a background task (POST + 4 s settle) so button presses return immediately; a warm session (4 min cache) sends directly.
+
+### Changed (maintainer hardening on top of PR #6)
+- Commands pressed while a cold connect is in progress are now **queued** behind the connect lock instead of dropped.
+- Adopting the official app's session id is now **transient**: the integration never refreshes a foreign session in the background, and reverts to its own id as soon as the machine reports the session released.
+- Tests for the session helpers (`normalize_signed_app_id`, `integration_app_id_to_bytes`, profile gating).
+
 ## [0.3.11] - 2026-06-07
 
 ### Added
