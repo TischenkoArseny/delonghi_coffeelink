@@ -213,6 +213,20 @@ def build_wake_encoded() -> str:
     return encode_command(build_wake_command())
 
 
+def is_wake_power_frame(decoded: dict) -> bool:
+    """True if a decoded frame is a real wake/power-on command (params 02 01).
+
+    The app also emits 0x84 0x0f frames that are NOT a power-on (e.g.
+    session-refresh packets with params 03 02, seen in issue #1 captures);
+    those must never be learned as the wake frame or they would overwrite
+    the learned power-on frame.
+    """
+    return (
+        decoded.get("type") == "power"
+        and decoded.get("params") == POWER_WAKE_PARAMS.hex(" ")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Decoding / inspection (used by the diagnostic command sniffer)
 #

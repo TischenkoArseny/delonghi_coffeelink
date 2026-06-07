@@ -15,6 +15,7 @@ from .command_builder import (
     builder_structural_b64,
     decode_command,
     deserialize_learned_frames,
+    is_wake_power_frame,
     recipe_dump_lines,
     serialize_learned_frames,
     summarize_decoded,
@@ -245,6 +246,19 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.learned_stop_frames,
             self.learned_wake_frame,
         ) = deserialize_learned_frames(data)
+        # Sanitize a wake frame persisted BEFORE the params guard existed: a
+        # session-refresh packet (e.g. params 03 02) stored as the wake frame
+        # would otherwise be replayed forever. Drop it so a real power-on from
+        # the app re-teaches it.
+        if self.learned_wake_frame is not None and not is_wake_power_frame(
+            decode_command(self.learned_wake_frame)
+        ):
+            _LOGGER.warning(
+                "Discarding persisted wake frame (not a real power-on): %s. "
+                "Power the machine on once from the official app to re-learn it.",
+                self.learned_wake_frame,
+            )
+            self.learned_wake_frame = None
         total = (
             len(self.learned_start_frames)
             + len(self.learned_stop_frames)
@@ -300,6 +314,17 @@ class DelonghiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ftype = decoded.get("type")
 
         if ftype == "power":
+            # The app also emits 0x84 0x0f frames that are NOT a power-on (e.g.
+            # session-refresh packets with params 03 02, seen in issue #1
+            # captures). Only the real wake params may be learned, otherwise a
+            # refresh packet would overwrite the learned power-on frame.
+            if not is_wake_power_frame(decoded):
+                _LOGGER.debug(
+                    "Ignoring power-family frame with params [%s] "
+                    "(not a wake/power-on, keeping learned wake frame)",
+                    decoded.get("params"),
+                )
+                return
             if self.learned_wake_frame != raw_b64:
                 self.learned_wake_frame = raw_b64
                 _LOGGER.info("Learned %s wake/power-on frame: %s", self.profile.key, raw_b64)

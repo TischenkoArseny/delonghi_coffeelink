@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.9] - 2026-06-07
+
+### Fixed
+- **Wake learning can no longer be overwritten by session-refresh packets.** The official app emits `0x84 0x0f` frames that are not a power-on (e.g. params `03 02`, seen in issue #1 captures); the sniffer used to learn *any* power-family frame as the wake frame, so such a packet could silently replace the learned power-on frame and break the Wake button. Only frames with the real wake params (`02 01`) are now learned (`is_wake_power_frame` guard), and a non-wake frame persisted by an earlier version is discarded at load with a clear log message asking to power the machine on once from the app to re-learn. Thanks @TischenkoArseny for spotting the overwrite path.
+
 ## [0.3.8] - 2026-06-07
 
 ### Changed

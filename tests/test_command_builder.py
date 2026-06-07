@@ -110,6 +110,37 @@ def test_decode_tolerates_ayla_trailing_newline():
     assert cb.builder_structural_b64(d) == d["structural_b64"]
 
 
+# --- is_wake_power_frame (wake-learning guard) ------------------------------
+
+def test_is_wake_power_frame_accepts_real_wake():
+    # Real captured app wake (params 02 01) must be learnable.
+    d = cb.decode_command("DQeEDwIBVRJqIf9q")
+    assert d["type"] == "power" and d["params"] == "02 01"
+    assert cb.is_wake_power_frame(d) is True
+
+
+def test_is_wake_power_frame_rejects_session_refresh():
+    # The app also emits 84 0f frames with params 03 02 (session refresh,
+    # Dieter's capture / issue #1). Learning one would overwrite the real
+    # power-on frame - the guard must reject it.
+    header = bytes.fromhex("0d07840f0302")
+    crc = cb.crc16_aug_ccitt(header)
+    frame = header + crc.to_bytes(2, "big") + (0x6A24A1BE).to_bytes(4, "big")
+    d = cb.decode_command(base64.b64encode(frame).decode())
+    assert d["type"] == "power" and d["params"] == "03 02"
+    assert d["crc_valid"] is True
+    assert cb.is_wake_power_frame(d) is False
+
+
+def test_is_wake_power_frame_rejects_non_power_frames():
+    # Beverage frames and undecodable input are never wake frames.
+    bev = cb.decode_command("DQ2D8BABDwD6GwEGgSRqILPb")
+    assert bev["type"] == "beverage"
+    assert cb.is_wake_power_frame(bev) is False
+    assert cb.is_wake_power_frame({"error": "junk"}) is False
+    assert cb.is_wake_power_frame({}) is False
+
+
 # --- decode_command: robustness -------------------------------------------
 
 def test_decode_rejects_non_base64():
